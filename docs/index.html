@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gated PixelCNN Demo</title>
+<link rel="stylesheet" href="pixelcnn_demo.css">
+<style>
+  /* The widget reads JupyterLab's theme variables; define them for the standalone page. */
+  :root {
+    --jp-ui-font-color1: #1f2328; --jp-ui-font-color2: #59636e;
+    --jp-border-color1: #d1d9e0; --jp-layout-color0: #ffffff; --jp-layout-color2: #f3f4f6;
+    --page-bg: #fbfbfa;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --jp-ui-font-color1: #e6e6e6; --jp-ui-font-color2: #a0a6ad;
+      --jp-border-color1: #3a3f45; --jp-layout-color0: #17191c; --jp-layout-color2: #2a2e33;
+      --page-bg: #111214;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --jp-ui-font-color1: #e6e6e6; --jp-ui-font-color2: #a0a6ad;
+    --jp-border-color1: #3a3f45; --jp-layout-color0: #17191c; --jp-layout-color2: #2a2e33;
+    --page-bg: #111214;
+    color-scheme: dark;
+  }
+  body {
+    margin: 0; background: var(--page-bg); color: var(--jp-ui-font-color1);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 8px; }
+  .lede { color: var(--jp-ui-font-color2); margin: 0 0 24px; max-width: 66ch; }
+  .formula { font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-size: 17px; white-space: nowrap; }
+  ul { padding-left: 20px; max-width: 68ch; }
+  li { margin: 4px 0; }
+  #demo { margin: 8px 0 24px; min-height: 480px; }
+  .note { color: var(--jp-ui-font-color2); font-size: 13px; max-width: 68ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gated PixelCNN, one pixel at a time</h1>
+  <p class="lede">A PixelCNN models an image as a product of per-pixel conditionals in raster order,
+    <span class="formula">p(x | y) = ∏<sub>i</sub> p(x<sub>i</sub> | x<sub>1</sub>, …, x<sub>i−1</sub>, y)</span>,
+    each computed by masked convolutions. This page reproduces the three ideas of
+    <i>Conditional Image Generation with PixelCNN Decoders</i> (van den Oord et al., NeurIPS 2016)
+    with a small model trained on binarized MNIST, running in your browser.</p>
+
+  <div id="demo">Loading…</div>
+
+  <h2>Things to try</h2>
+  <ul>
+    <li><b>Blind spot.</b> Hover a pixel near the middle of the grid with <i>PixelCNN</i> selected and
+      drag the layers slider up. The receptive field grows along a diagonal, and the red pixels above and to the
+      right of it never join, however many layers you add. Switch to <i>Gated PixelCNN</i>: the vertical stack
+      covers everything above, the horizontal stack covers the row to the left, and the red is gone.</li>
+    <li><b>Sampling.</b> Pick a digit and press <i>Sample</i>. Each pixel needs its own pass through the network,
+      because it depends on the pixels just drawn: 784 passes, one after another. The bar shows the model's
+      p(x<sub>i</sub> = 1) for the pixel being drawn. It is near 0 or 1 inside strokes and background, and uncertain at edges.</li>
+    <li>The class y enters every layer as a learned bias inside both gates. Press <i>All digits</i> to see one model
+      follow ten different conditions. Choose <i>none</i> for unconditional samples from the same network.</li>
+    <li>Lower the temperature for cleaner, more typical digits. Raise it for noisier, more varied ones.</li>
+    <li><b>Inpainting.</b> Keep the top half of a test digit and complete it, a few times. The completions vary
+      but continue the strokes. Try conditioning on another class to see how far the model will bend the top half.
+      Then switch to <i>keep bottom half</i>. The top now comes first in raster order, so it is generated
+      without any knowledge of the bottom, and the halves rarely fit. The −log p of the kept half shows it.</li>
+  </ul>
+  <p class="note">Differences from the paper: pixels are binary, so each conditional is one Bernoulli logit
+    instead of a 256-way softmax, and there is one channel, so no R→G→B ordering inside a pixel. The class
+    enters as a one-hot vector, one learned bias per class and gate (paper eq. 4). The browser evaluates the network
+    incrementally. Each row of the vertical stack is computed once, and each pixel needs one horizontal-stack
+    step, so it never repeats work. The result is exactly what 784 full forward passes would give.</p>
+</main>
+<script type="module">
+  import { mount, urlSource } from "./pixelcnn_demo.js";
+  const el = document.getElementById("demo");
+  const tab = new URLSearchParams(location.search).get("tab") || "blind";
+  mount(el, urlSource("./bundle/"), { tab }).catch((err) => {
+    el.textContent = "Could not start the demo: " + err.message;
+  });
+</script>
+</body>
+</html>

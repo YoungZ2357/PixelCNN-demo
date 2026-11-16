@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+.idea/
+.claude/
+.pytest_cache/
+.ruff_cache/
+
+# reference project, kept locally only
+VAE-demo/
+# MNIST is downloaded by torchvision on first use
+data/
+# regenerable figures
+runs/**/*.png
+# local preview builds
+_site/
+# smoke-test runs
+runs/smoke/
