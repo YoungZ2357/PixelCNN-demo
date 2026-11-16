@@ -46,6 +46,8 @@
   border-radius: 6px; border: 1px solid var(--pc-border); background: #000;
 }
 .pc-grid { background: var(--pc-bg); cursor: crosshair; touch-action: none; }
+.pc-splittable { cursor: ns-resize; touch-action: none; }
+.pc-splittable:focus-visible { outline: 2px solid var(--pc-accent); outline-offset: 2px; }
 .pc-grid:focus-visible { outline: 2px solid var(--pc-accent); outline-offset: 2px; }
 .pc-picker {
   display: block; width: 100%; max-width: 320px; image-rendering: pixelated; background: #000;

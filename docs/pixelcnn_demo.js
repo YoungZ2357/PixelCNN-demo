@@ -609,12 +609,13 @@ function samplingTab(root, net) {
 
 // ------------------------------------------------------------------ tab 3: inpainting
 function inpaintingTab(root, net, examples) {
-  const half = H / 2;
-  const st = { idx: 0, keep: "top", y: examples.labels[0], speed: "normal", job: null };
+  // split: row of the dashed line; rows above it are "top", rows from it on are "bottom"
+  const st = { idx: 0, keep: "top", split: H / 2, y: examples.labels[0], speed: "normal", job: null };
   const accent = () => cssVar(root, "--pc-accent", "#e8590c");
-  const orig = imageCanvas(), comp = imageCanvas();
+  const orig = imageCanvas("pc-img pc-splittable"), comp = imageCanvas("pc-img pc-splittable");
   const history = historyStrip(10);
-  const isKept = (pos) => (st.keep === "top" ? pos < half * W : pos >= half * W);
+  const isKept = (pos) => (st.keep === "top" ? pos < st.split * W : pos >= st.split * W);
+  const keptRows = () => (st.keep === "top" ? st.split : H - st.split);
   const image = (i) => Float32Array.from(examples.images.subarray(i * N, (i + 1) * N));
 
   // picker: every example image, one canvas, click to choose
@@ -653,7 +654,7 @@ function inpaintingTab(root, net, examples) {
     reset();
   });
 
-  const keepSeg = seg([["top", "keep top half"], ["bottom", "keep bottom half"]], st.keep,
+  const keepSeg = seg([["top", "keep top"], ["bottom", "keep bottom"]], st.keep,
                       (v) => { stop(); st.keep = v; reset(); });
   const classOpts = [...Array(10).keys()].map((d) => [d, String(d)]).concat([[net.nullClass, "none", "no class"]]);
   const classSeg = seg(classOpts, st.y, (v) => { st.y = v; }, "pc-seg-digits");
@@ -663,34 +664,80 @@ function inpaintingTab(root, net, examples) {
   const stopBtn = h("button", { type: "button", class: "pc-btn", disabled: true, onclick: () => stop() }, "Stop");
   const nllOrig = h("span", { class: "pc-value-sm" }, "–");
   const nllNew = h("span", { class: "pc-value-sm" }, "–");
+  const splitText = h("div", { class: "pc-muted pc-small" });
   const explain = h("p", { class: "pc-small pc-explain" });
   const state = net.newState(0);
-  let origNll = null;
 
+  // −log p of each pixel of the original image. It depends on the image and y, not on the split,
+  // so moving the line only re-sums it.
+  let pixNll = null, pixKey = null;
   function keptNll(x, y) {
-    const lg = logitsOf(net, x, y);
-    let s = 0;
-    for (let pos = 0; pos < N; pos++) {
-      if (isKept(pos)) s += x[pos] ? Math.log1p(Math.exp(-lg[pos])) : Math.log1p(Math.exp(lg[pos]));
+    const key = `${st.idx}:${y}`;
+    if (key !== pixKey) {
+      const lg = logitsOf(net, x, y);
+      pixNll = new Float64Array(N);
+      for (let pos = 0; pos < N; pos++) {
+        pixNll[pos] = x[pos] ? Math.log1p(Math.exp(-lg[pos])) : Math.log1p(Math.exp(lg[pos]));
+      }
+      pixKey = key;
     }
+    let s = 0;
+    for (let pos = 0; pos < N; pos++) if (isKept(pos)) s += pixNll[pos];
     return s;
   }
   function reset() {
     const x = image(st.idx);
-    paintImage(orig, x, { hidden: (p) => !isKept(p), split: half, accent: accent() });
+    paintImage(orig, x, { hidden: (p) => !isKept(p), split: st.split, accent: accent() });
     const start = new Float32Array(N);
     for (let p = 0; p < N; p++) start[p] = isKept(p) ? x[p] : -1;
-    paintImage(comp, start, { split: half, accent: accent() });
-    origNll = keptNll(x, st.y);
-    nllOrig.textContent = `${fmt(origNll)} nats`;
+    paintImage(comp, start, { split: st.split, accent: accent() });
+    nllOrig.textContent = `${fmt(keptNll(x, st.y))} nats`;
     nllNew.textContent = "–";
+    const k = keptRows();
+    splitText.textContent = `${k} of ${H} rows (${k * W} pixels) given to the model. Drag the dashed line to change it.`;
     drawPicker();
     explain.textContent = st.keep === "top"
-      ? "The model generates the bottom half conditioned on the top half: that is its past. The completion has to " +
-        "continue the strokes it sees. The kept half's −log p does not change, because no pixel of it can see the bottom."
+      ? "The model generates the rows below the line conditioned on the rows above it: that is its past. The " +
+        "completion has to continue the strokes it sees; the more rows it is given, the less room it has to wander. " +
+        "The kept part's −log p does not change, because no pixel of it can see the rows below."
       : "Now the missing pixels come first in raster order. They are generated before the network can see the kept " +
-        "bottom half; nothing in a PixelCNN ever looks at later pixels. The two halves rarely fit, and the kept half's " +
+        "rows; nothing in a PixelCNN ever looks at later pixels. The two parts rarely fit, and the kept part's " +
         "−log p rises: under this completion it has become an unlikely continuation.";
+  }
+
+  // drag (or click) on either image to move the split line; arrow keys when an image has focus
+  function setSplit(r) {
+    r = Math.max(1, Math.min(H - 1, r));
+    if (r === st.split) return;
+    stop();
+    st.split = r;
+    reset();
+  }
+  const rowAt = (cv, e) => {
+    const b = cv.getBoundingClientRect();
+    return Math.round(((e.clientY - b.top) / b.height) * H);
+  };
+  for (const cv of [orig, comp]) {
+    cv.tabIndex = 0;
+    cv.setAttribute("aria-label", "image; drag up or down, or press the arrow keys, to move the dashed split line");
+    let dragging = false;
+    cv.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      cv.setPointerCapture(e.pointerId);
+      cv.focus();
+      setSplit(rowAt(cv, e));
+      e.preventDefault();
+    });
+    cv.addEventListener("pointermove", (e) => { if (dragging) setSplit(rowAt(cv, e)); });
+    const end = () => { dragging = false; };
+    cv.addEventListener("pointerup", end);
+    cv.addEventListener("pointercancel", end);
+    cv.addEventListener("keydown", (e) => {
+      const d = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      setSplit(st.split + d);
+    });
   }
   function busy(b) { goBtn.disabled = b; stopBtn.disabled = !b; }
   function stop() { if (st.job) st.job.stop(); st.job = null; busy(false); }
@@ -703,13 +750,14 @@ function inpaintingTab(root, net, examples) {
     const show = (s, done) => {
       const x = Float32Array.from(s.x);
       for (let q = s.pos + 1; q < N; q++) x[q] = isKept(q) ? x0[q] : -1;
-      paintImage(comp, x, { split: half, cursor: done ? null : s.pos, accent: accent() });
+      paintImage(comp, x, { split: st.split, cursor: done ? null : s.pos, accent: accent() });
       if (done) nllNew.textContent = `${fmt(s.nll.known)} nats`;
     };
     st.job = animate(gen, () => st.speed, (s) => show(s, false), (s) => {
       show(s, true);
-      history.push(s.x, `${st.keep} · y=${classLabel(y, net)}`,
-                   `kept ${st.keep} half, class ${classLabel(y, net)}, kept-half −log p = ${fmt(s.nll.known)} nats`);
+      const k = keptRows();
+      history.push(s.x, `${st.keep} ${k} · y=${classLabel(y, net)}`,
+                   `kept ${st.keep} ${k} rows, class ${classLabel(y, net)}, kept-part −log p = ${fmt(s.nll.known)} nats`);
       st.job = null;
       busy(false);
     });
@@ -718,17 +766,17 @@ function inpaintingTab(root, net, examples) {
   const el = h("div", {},
     h("div", { class: "pc-main" },
       h("div", { class: "pc-left pc-pair" },
-        h("figure", { class: "pc-fig" }, orig, h("figcaption", { class: "pc-label" }, "original (shaded part hidden)")),
+        h("figure", { class: "pc-fig" }, orig, h("figcaption", { class: "pc-label" }, "original (shaded part hidden; drag the line)")),
         h("figure", { class: "pc-fig" }, comp, h("figcaption", { class: "pc-label" }, "completion"))),
       h("div", { class: "pc-right" },
         h("div", { class: "pc-label" }, "test image (click one)"), picker,
-        h("div", { class: "pc-label pc-gap" }, "condition"), keepSeg.el,
+        h("div", { class: "pc-label pc-gap" }, "condition"), keepSeg.el, splitText,
         h("div", { class: "pc-label pc-gap" }, "class y (underlined: true label)"), classSeg.el,
         h("div", { class: "pc-label pc-gap" }, "speed"), speedSeg.el,
         h("div", { class: "pc-row pc-gap" }, goBtn, stopBtn),
         h("table", { class: "pc-table pc-gap" },
-          h("tr", {}, h("th", { colspan: "2" }, "−log p of the kept half")),
-          h("tr", {}, h("td", {}, "with the original other half"), h("td", {}, nllOrig)),
+          h("tr", {}, h("th", { colspan: "2" }, "−log p of the kept part")),
+          h("tr", {}, h("td", {}, "with the original missing part"), h("td", {}, nllOrig)),
           h("tr", {}, h("td", {}, "with this completion"), h("td", {}, nllNew))))),
     explain,
     h("div", { class: "pc-label pc-gap" }, "recent completions"), history.el);

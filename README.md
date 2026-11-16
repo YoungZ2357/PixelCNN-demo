@@ -11,7 +11,8 @@ browser and has three tabs, one for each idea in the paper:
    in all). You can also adjust the temperature and sample one of every digit.
 3. **Inpainting.** Keep the top half of a test digit and the model completes the bottom half. Keep
    the bottom half instead and the model fails, because it can only condition on the past. The
-   −log p of the kept half shows the difference.
+   −log p of the kept half shows the difference. Drag the dashed line (or focus an image and use
+   the arrow keys) to choose how many rows the model is given.
 
 ## Setup
 
